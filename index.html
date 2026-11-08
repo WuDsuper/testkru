@@ -25,7 +25,7 @@
     </ul>
   </div>
   <div class="auth-card">
-    <div class="tabs">
+    <div class="tabs" id="auth-tabs">
       <button class="tab active" data-auth-tab="login">เข้าสู่ระบบ</button>
       <button class="tab" data-auth-tab="register" id="tab-register">ลงทะเบียน</button>
     </div>
@@ -69,6 +69,20 @@
       </div>
       <p class="muted small">ชื่อ สกุล และสถานศึกษาจะปรากฏบนเกียรติบัตร กรุณากรอกให้ถูกต้อง</p>
       <button class="btn primary block" type="submit">ลงทะเบียน</button>
+    </form>
+
+    <form id="form-verify" class="form hidden" autocomplete="off">
+      <h3 style="margin-bottom:4px">ยืนยันอีเมล</h3>
+      <p class="muted" style="margin-top:0">ระบบส่งรหัสยืนยัน 8 หลักไปที่ <b id="verify-email"></b> กรุณาตรวจสอบกล่องจดหมาย หากไม่พบให้ดูในโฟลเดอร์จดหมายขยะหรือโปรโมชัน</p>
+      <label>รหัสยืนยัน 8 หลัก
+        <input name="code" id="verify-code" class="otp-input" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" required autocomplete="one-time-code" placeholder="00000000">
+      </label>
+      <p class="small muted" id="verify-expire"></p>
+      <button class="btn primary block" type="submit">ยืนยันและเข้าสู่ระบบ</button>
+      <div class="verify-actions">
+        <button type="button" class="btn ghost small" id="btn-resend" disabled>ขอรหัสใหม่</button>
+        <button type="button" class="btn ghost small" id="btn-verify-back">กลับไปหน้าเข้าสู่ระบบ</button>
+      </div>
     </form>
   </div>
 </section>
