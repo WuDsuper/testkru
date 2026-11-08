@@ -113,11 +113,11 @@ function applySettings() {
 }
 
 function bindStatic() {
-  $$('[data-auth-tab]').forEach(b => b.addEventListener('click', () => {
-    $$('[data-auth-tab]').forEach(x => x.classList.toggle('active', x === b));
-    $('#form-login').classList.toggle('hidden', b.dataset.authTab !== 'login');
-    $('#form-register').classList.toggle('hidden', b.dataset.authTab !== 'register');
-  }));
+  $$('[data-auth-tab]').forEach(b => b.addEventListener('click', () => showAuthTab(b.dataset.authTab)));
+  $('#form-verify').addEventListener('submit', onVerify);
+  $('#btn-resend').addEventListener('click', onResend);
+  $('#btn-verify-back').addEventListener('click', () => { stopVerifyTimers(); showAuthTab('login'); });
+  $('#verify-code').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
   $('#form-login').addEventListener('submit', onLogin);
   $('#form-register').addEventListener('submit', onRegister);
   $('#btn-logout').addEventListener('click', e => { e.preventDefault(); onLogout(); });
@@ -181,6 +181,8 @@ function sessionExpired() {
   store('tt_token', null);
   $('#modal').classList.add('hidden');
   $('#cert-modal').classList.add('hidden');
+  stopVerifyTimers();
+  showAuthTab('login');
   showView('auth');
 }
 
@@ -189,7 +191,13 @@ async function onLogin(e) {
   const f = formData(e.target);
   loading(true, 'กำลังเข้าสู่ระบบ');
   try {
-    setSession(await api('login', f.email, f.password));
+    const r = await api('login', f.email, f.password);
+    if (r.need_verify) {
+      showVerify(r);
+      toast('บัญชียังไม่ได้ยืนยันอีเมล กรุณากรอกรหัสที่ส่งไปยังอีเมล', '');
+      return;
+    }
+    setSession(r);
     await loadDashboard();
     e.target.reset();
     toast('เข้าสู่ระบบสำเร็จ', 'success');
@@ -207,10 +215,89 @@ async function onRegister(e) {
   delete f.password2;
   loading(true, 'กำลังลงทะเบียน');
   try {
-    setSession(await api('register', f));
+    const r = await api('register', f);
+    if (r.need_verify) {
+      e.target.reset();
+      showVerify(r);
+      toast('ส่งรหัสยืนยันไปที่อีเมลแล้ว', 'success');
+      return;
+    }
+    setSession(r);
     await loadDashboard();
     e.target.reset();
     toast('ลงทะเบียนสำเร็จ ยินดีต้อนรับเข้าสู่การอบรม', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    loading(false);
+  }
+}
+
+/* ---------------- ยืนยันอีเมลด้วยรหัส 8 หลัก ---------------- */
+
+const V = { email: '', expireAt: 0, resendAt: 0, timer: null };
+
+function showAuthTab(name) {
+  $$('[data-auth-tab]').forEach(x => x.classList.toggle('active', x.dataset.authTab === name));
+  $('#auth-tabs').classList.toggle('hidden', name === 'verify');
+  $('#form-login').classList.toggle('hidden', name !== 'login');
+  $('#form-register').classList.toggle('hidden', name !== 'register');
+  $('#form-verify').classList.toggle('hidden', name !== 'verify');
+}
+
+function stopVerifyTimers() { if (V.timer) clearInterval(V.timer); V.timer = null; }
+
+function showVerify(r) {
+  V.email = r.email;
+  V.expireAt = r.sent || !V.expireAt ? Date.now() + r.expires_in * 1000 : V.expireAt;
+  V.resendAt = Date.now() + r.resend_after * 1000;
+  $('#verify-email').textContent = r.email_masked || r.email;
+  $('#verify-code').value = '';
+  showView('auth');
+  showAuthTab('verify');
+  stopVerifyTimers();
+  updateVerifyTimers();
+  V.timer = setInterval(updateVerifyTimers, 1000);
+  setTimeout(() => $('#verify-code').focus(), 50);
+}
+
+function updateVerifyTimers() {
+  const now = Date.now();
+  const exp = Math.max(0, Math.ceil((V.expireAt - now) / 1000));
+  const rs = Math.max(0, Math.ceil((V.resendAt - now) / 1000));
+  $('#verify-expire').textContent = exp > 0
+    ? 'รหัสหมดอายุใน ' + Math.floor(exp / 60) + ' นาที ' + (exp % 60) + ' วินาที'
+    : 'รหัสหมดอายุแล้ว กรุณากดขอรหัสใหม่';
+  const btn = $('#btn-resend');
+  btn.disabled = rs > 0;
+  btn.textContent = rs > 0 ? 'ขอรหัสใหม่ได้ใน ' + rs + ' วินาที' : 'ขอรหัสใหม่';
+}
+
+async function onVerify(e) {
+  e.preventDefault();
+  const code = $('#verify-code').value.trim();
+  if (!/^\d{8}$/.test(code)) { toast('กรุณากรอกรหัสยืนยันให้ครบ 8 หลัก', 'error'); return; }
+  loading(true, 'กำลังตรวจสอบรหัส');
+  try {
+    setSession(await api('verifyEmail', V.email, code));
+    stopVerifyTimers();
+    showAuthTab('login');
+    await loadDashboard();
+    toast('ยืนยันอีเมลสำเร็จ ยินดีต้อนรับเข้าสู่การอบรม', 'success');
+  } catch (err) {
+    $('#verify-code').select();
+    toast(err.message, 'error');
+  } finally {
+    loading(false);
+  }
+}
+
+async function onResend() {
+  loading(true, 'กำลังส่งรหัสใหม่');
+  try {
+    const r = await api('resendOtp', V.email);
+    showVerify(r);
+    toast(r.sent ? 'ส่งรหัสใหม่ไปที่อีเมลแล้ว' : 'กรุณารอสักครู่ก่อนขอรหัสใหม่', r.sent ? 'success' : '');
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -1043,10 +1130,11 @@ function reportTable() {
       <td>${esc(u.position)}</td><td>${esc(u.school)}</td>
       ${r.courses.map(c => { const p = u.courses[c.course_id]; return p.enrolled ? `<td class="num"><span class="pct ${p.passed ? 'ok' : (p.percent > 0 ? 'mid' : '')}">${p.passed ? 'ผ่าน' : p.percent}</span></td>` : '<td class="num"><span class="small muted">ไม่ได้ลง</span></td>'; }).join('')}
       <td class="num">${u.passed}</td>
-      <td>${u.role === 'admin' ? '<span class="badge learning">ผู้ดูแล</span>' : ''} ${u.status === 'ระงับ' ? '<span class="badge hidden-st">ระงับ</span>' : '<span class="badge passed">ใช้งาน</span>'}</td>
+      <td>${u.role === 'admin' ? '<span class="badge learning">ผู้ดูแล</span>' : ''} ${u.status === 'ระงับ' ? '<span class="badge hidden-st">ระงับ</span>' : (u.status === 'รอยืนยันอีเมล' ? '<span class="badge pending">รอยืนยันอีเมล</span>' : '<span class="badge passed">ใช้งาน</span>')}</td>
       <td style="white-space:nowrap">
         <button class="btn small" onclick="App.userRole('${esc(u.user_id)}','${u.role === 'admin' ? 'teacher' : 'admin'}')">${u.role === 'admin' ? 'ยกเลิกสิทธิ์ผู้ดูแล' : 'ตั้งเป็นผู้ดูแล'}</button>
         <button class="btn small" onclick="App.userReset('${esc(u.user_id)}')">รีเซ็ตรหัสผ่าน</button>
+        ${u.status === 'รอยืนยันอีเมล' ? `<button class="btn small" onclick="App.userStatus('${esc(u.user_id)}','ใช้งาน')">ยืนยันแทน</button>` : ''}
         <button class="btn small danger" onclick="App.userStatus('${esc(u.user_id)}','${u.status === 'ระงับ' ? 'ใช้งาน' : 'ระงับ'}')">${u.status === 'ระงับ' ? 'เปิดใช้งาน' : 'ระงับ'}</button>
       </td></tr>`).join('')}
     </tbody></table>`;
