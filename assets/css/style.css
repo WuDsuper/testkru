@@ -54,6 +54,10 @@ a{color:var(--primary)}
 .auth-points li{margin-bottom:8px}
 .auth-card{background:#fff;padding:40px;display:flex;flex-direction:column;justify-content:center;max-width:560px;width:100%;margin:0 auto}
 
+/* โครงร่างระหว่างโหลด */
+.skeleton{background:linear-gradient(90deg,#eef2f7 25%,#f8fafc 50%,#eef2f7 75%);background-size:200% 100%;animation:shimmer 1.2s infinite;box-shadow:none}
+@keyframes shimmer{to{background-position:-200% 0}}
+
 /* ยืนยันอีเมล */
 .otp-input{font-size:2rem!important;letter-spacing:.5em;text-align:center;font-weight:700;padding:12px!important}
 .verify-actions{display:flex;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap}

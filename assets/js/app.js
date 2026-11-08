@@ -85,21 +85,57 @@ function ytId(url) {
 
 /* ---------------- การเริ่มต้นระบบ ---------------- */
 
+function loadJSON(k) { try { return JSON.parse(load(k) || 'null'); } catch (e) { return null; } }
+function saveJSON(k, v) { try { store(k, JSON.stringify(v)); } catch (e) {} }
+
+// แสดงหน้าเว็บทันทีจากข้อมูลที่เคยโหลดไว้ แล้วค่อยปรับข้อมูลล่าสุดจากเซิร์ฟเวอร์เบื้องหลัง
 async function init() {
   bindStatic();
-  loading(true);
-  try {
-    S.settings = await api('getPublicSettings');
-    applySettings();
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+  S.settings = loadJSON('tt_settings') || {};
+  applySettings();
   S.token = load('tt_token') || '';
   if (S.token) {
-    try { await loadDashboard(); loading(false); return; } catch (e) { /* เข้าสู่ระบบใหม่ */ }
+    const cached = loadJSON('tt_dash');
+    if (cached && cached.user) {
+      S.dash = cached;
+      S.user = cached.user;
+      renderDashboard();
+    } else {
+      renderDashboardSkeleton();
+    }
+    showView('dashboard');
+    refreshDashboard();
+    return;
   }
-  loading(false);
   showView('auth');
+  api('getPublicSettings').then(st => {
+    S.settings = st;
+    saveJSON('tt_settings', st);
+    applySettings();
+  }).catch(() => {});
+}
+
+async function refreshDashboard() {
+  setRefreshing(true);
+  try {
+    await loadDashboard(false);
+  } catch (e) {
+    if (S.token) toast(e.message, 'error');
+  } finally {
+    setRefreshing(false);
+  }
+}
+
+function setRefreshing(on) {
+  const el = $('#dash-refresh');
+  if (el) el.classList.toggle('hidden', !on);
+}
+
+function renderDashboardSkeleton() {
+  $('#dash-name').textContent = 'กำลังโหลดข้อมูล';
+  $('#dash-school').textContent = '';
+  $('#dash-stats').innerHTML = Array(4).fill('<div class="stat skeleton" style="height:84px"></div>').join('');
+  $('#course-grid').innerHTML = Array(4).fill('<div class="course-card skeleton" style="height:320px"></div>').join('');
 }
 
 function applySettings() {
@@ -144,6 +180,7 @@ function bindStatic() {
 }
 
 function showView(name) {
+  S.view = name;
   if (name !== 'course') stopPlayer();
   $$('.view').forEach(v => v.classList.add('hidden'));
   $('#view-' + name).classList.remove('hidden');
@@ -156,8 +193,15 @@ function showView(name) {
 
 async function navigate(name) {
   if (name === 'dashboard') {
-    loading(true);
-    try { await loadDashboard(); } catch (e) { toast(e.message, 'error'); } finally { loading(false); }
+    if (S.dash) {
+      renderDashboard();
+      showView('dashboard');
+      refreshDashboard();
+    } else {
+      renderDashboardSkeleton();
+      showView('dashboard');
+      refreshDashboard();
+    }
   } else if (name === 'profile') {
     renderProfile();
     showView('profile');
@@ -179,6 +223,8 @@ function sessionExpired() {
   S.token = '';
   S.user = null;
   store('tt_token', null);
+  store('tt_dash', null);
+  S.dash = null;
   $('#modal').classList.add('hidden');
   $('#cert-modal').classList.add('hidden');
   stopVerifyTimers();
@@ -313,14 +359,19 @@ function onLogout() {
 
 /* ---------------- แดชบอร์ด ---------------- */
 
-async function loadDashboard() {
+async function loadDashboard(show) {
   const d = await api('getDashboard', S.token);
   S.dash = d;
   S.user = d.user;
   S.settings = d.settings;
+  saveJSON('tt_dash', d);
+  saveJSON('tt_settings', d.settings);
   applySettings();
-  renderDashboard();
-  showView('dashboard');
+  // ปรับหน้าจอเฉพาะเมื่อผู้ใช้ยังอยู่ที่แดชบอร์ด ไม่ดึงผู้ใช้ออกจากหน้าเรียน
+  if (show !== false || S.view === 'dashboard') {
+    renderDashboard();
+    showView('dashboard');
+  }
 }
 
 function renderDashboard() {
@@ -956,7 +1007,23 @@ function certFileName() {
   return 'เกียรติบัตร_' + String(S.certData.cert_no).replace(/[^\w-]/g, '');
 }
 
-function downloadPdf() {
+// โหลดเครื่องมือสร้าง PDF เฉพาะตอนกดดาวน์โหลด ไม่ให้หน่วงการเปิดหน้าเว็บ
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function downloadPdf() {
+  if (!window.jspdf) {
+    loading(true, 'กำลังเตรียมไฟล์ PDF');
+    try { await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'); } catch (e) {}
+    loading(false);
+  }
   const lib = window.jspdf;
   if (!lib || !lib.jsPDF) { toast('ไม่สามารถโหลดเครื่องมือสร้าง PDF ได้ กรุณาดาวน์โหลดเป็นภาพแทน', 'error'); return; }
   const pdf = new lib.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });

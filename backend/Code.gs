@@ -230,6 +230,7 @@ function setup() {
   const sheet1 = ss.getSheetByName('Sheet1') || ss.getSheetByName('แผ่น1');
   if (sheet1 && ss.getSheets().length > 1 && sheet1.getLastRow() === 0) ss.deleteSheet(sheet1);
   CacheService.getScriptCache().remove('SETTINGS');
+  clearCatalog_();
   Logger.log('ติดตั้งเรียบร้อย ผู้ดูแลระบบ: ' + DEFAULT_ADMIN_EMAIL + ' รหัสผ่าน: ' + DEFAULT_ADMIN_PASSWORD);
 }
 
@@ -490,6 +491,19 @@ function fullName_(u) {
   return (String(u.prefix || '') + String(u.first_name || '') + ' ' + String(u.last_name || '')).trim();
 }
 
+function clearUserCache_(userId) { CacheService.getScriptCache().remove('U_' + userId); }
+
+// ข้อมูลหลักสูตร บทเรียน และข้อสอบ เปลี่ยนไม่บ่อย จึงเก็บในแคชและล้างเมื่อผู้ดูแลแก้ไข
+function catalog_() {
+  const cache = CacheService.getScriptCache();
+  const c = cache.get('CATALOG');
+  if (c) { try { return JSON.parse(c); } catch (e) { /* อ่านใหม่ */ } }
+  const cat = { courses: readAll_('Courses'), lessons: readAll_('Lessons'), questions: readAll_('Questions') };
+  try { cache.put('CATALOG', JSON.stringify(cat), 21600); } catch (e) { /* ข้อมูลใหญ่เกินแคช ใช้การอ่านตรง */ }
+  return cat;
+}
+function clearCatalog_() { CacheService.getScriptCache().remove('CATALOG'); }
+
 function createSession_(userId) {
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
   CacheService.getScriptCache().put('S_' + token, userId, SESSION_HOURS * 3600);
@@ -502,7 +516,14 @@ function auth_(token, needAdmin) {
   const uid = cache.get('S_' + token);
   if (!uid) throw new Error('SESSION_EXPIRED');
   cache.put('S_' + token, uid, SESSION_HOURS * 3600);
-  const u = readAll_('Users').find(function (x) { return String(x.user_id) === uid; });
+  // เก็บข้อมูลผู้ใช้ในแคช 5 นาที ไม่ต้องอ่านชีต Users ทุกคำขอ
+  let u = null;
+  const cu = cache.get('U_' + uid);
+  if (cu) { try { u = JSON.parse(cu); } catch (e) { u = null; } }
+  if (!u) {
+    u = readAll_('Users').find(function (x) { return String(x.user_id) === uid; });
+    if (u) cache.put('U_' + uid, JSON.stringify(u), 300);
+  }
   if (!u || u.status === 'ระงับ' || u.status === STATUS_PENDING) throw new Error('SESSION_EXPIRED');
   if (needAdmin && u.role !== 'admin') throw new Error('ไม่มีสิทธิ์เข้าถึงส่วนผู้ดูแลระบบ');
   return u;
@@ -694,6 +715,7 @@ function updateProfile(token, data) {
   fields.forEach(function (f) { if (data[f] !== undefined) upd[f] = String(data[f]).trim(); });
   if (!upd.first_name || !upd.last_name) throw new Error('กรุณากรอกชื่อและสกุล');
   update_('Users', 'user_id', u.user_id, upd);
+  clearUserCache_(u.user_id);
   return publicUser_(Object.assign({}, u, upd));
 }
 
@@ -703,6 +725,7 @@ function changePassword(token, oldPw, newPw) {
   if (String(newPw || '').length < 6) throw new Error('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
   const salt = Utilities.getUuid();
   update_('Users', 'user_id', u.user_id, { salt: salt, password_hash: hash_(String(newPw), salt) });
+  clearUserCache_(u.user_id);
   return true;
 }
 
@@ -711,10 +734,11 @@ function changePassword(token, oldPw, newPw) {
  * ========================================================= */
 
 function loadUserContext_(userId) {
+  const cat = catalog_();
   return {
-    courses: readAll_('Courses').filter(function (c) { return c.status === 'เผยแพร่'; }).sort(byOrder_),
-    lessons: readAll_('Lessons').filter(function (l) { return l.status !== 'ซ่อน'; }).sort(byOrder_),
-    questions: readAll_('Questions'),
+    courses: cat.courses.filter(function (c) { return c.status === 'เผยแพร่'; }).sort(byOrder_),
+    lessons: cat.lessons.filter(function (l) { return l.status !== 'ซ่อน'; }).sort(byOrder_),
+    questions: cat.questions,
     progress: readAll_('Progress').filter(function (p) { return String(p.user_id) === String(userId); }),
     results: readAll_('QuizResults').filter(function (r) { return String(r.user_id) === String(userId); }),
     certs: readAll_('Certificates').filter(function (c) { return String(c.user_id) === String(userId); }),
@@ -828,7 +852,7 @@ function requireEnrolled_(u, courseId) {
 
 function saveProgress(token, lessonId, percent) {
   const u = auth_(token);
-  const lesson = readAll_('Lessons').find(function (l) { return l.lesson_id === lessonId; });
+  const lesson = catalog_().lessons.find(function (l) { return l.lesson_id === lessonId; });
   if (!lesson) throw new Error('ไม่พบบทเรียน');
   requireEnrolled_(u, lesson.course_id);
   const minWatch = Number(getSettings_().MIN_WATCH_PERCENT) || 80;
@@ -884,9 +908,9 @@ function getQuiz(token, courseId) {
 function submitQuiz(token, courseId, answers) {
   const u = auth_(token);
   answers = answers || {};
-  const qs = readAll_('Questions').filter(function (q) { return q.course_id === courseId; });
+  const qs = catalog_().questions.filter(function (q) { return q.course_id === courseId; });
   if (!qs.length) throw new Error('หลักสูตรนี้ไม่มีแบบทดสอบ');
-  const c = readAll_('Courses').find(function (x) { return x.course_id === courseId; });
+  const c = catalog_().courses.find(function (x) { return x.course_id === courseId; });
   const passPercent = Number(c && c.pass_percent) || 70;
   let score = 0;
   const detail = {};
@@ -966,6 +990,7 @@ function driveImage_(fileId) {
 
 function adminGetData(token) {
   auth_(token, true);
+  clearCatalog_();  // ผู้ดูแลเปิดหน้าจัดการหรือกดปรับข้อมูล ให้ระบบอ่านชีตใหม่ รองรับกรณีแก้ข้อมูลในชีตโดยตรง
   return {
     courses: readAll_('Courses').sort(byOrder_),
     lessons: readAll_('Lessons').sort(byOrder_),
@@ -992,6 +1017,7 @@ function adminSaveCourse(token, data) {
       o.created_at = new Date();
       insert_('Courses', o);
     }
+    clearCatalog_();
     return adminGetData(token);
   });
 }
@@ -1002,6 +1028,7 @@ function adminDeleteCourse(token, courseId) {
     deleteWhere_('Lessons', 'course_id', courseId);
     deleteWhere_('Questions', 'course_id', courseId);
     deleteWhere_('Courses', 'course_id', courseId);
+    clearCatalog_();
     return adminGetData(token);
   });
 }
@@ -1017,13 +1044,15 @@ function adminSaveLesson(token, data) {
       o.lesson_id = nextId_('Lessons', 'lesson_id', 'L', 4);
       insert_('Lessons', o);
     }
+    clearCatalog_();
     return adminGetData(token);
   });
 }
 
 function adminDeleteLesson(token, lessonId) {
   auth_(token, true);
-  return withLock_(function () { deleteWhere_('Lessons', 'lesson_id', lessonId); return adminGetData(token); });
+  return withLock_(function () { deleteWhere_('Lessons', 'lesson_id', lessonId); clearCatalog_();
+    return adminGetData(token); });
 }
 
 function adminSaveQuestion(token, data) {
@@ -1038,13 +1067,15 @@ function adminSaveQuestion(token, data) {
       o.question_id = nextId_('Questions', 'question_id', 'Q', 4);
       insert_('Questions', o);
     }
+    clearCatalog_();
     return adminGetData(token);
   });
 }
 
 function adminDeleteQuestion(token, questionId) {
   auth_(token, true);
-  return withLock_(function () { deleteWhere_('Questions', 'question_id', questionId); return adminGetData(token); });
+  return withLock_(function () { deleteWhere_('Questions', 'question_id', questionId); clearCatalog_();
+    return adminGetData(token); });
 }
 
 function adminSaveSettings(token, map) {
@@ -1062,9 +1093,10 @@ function adminSaveSettings(token, map) {
 function adminReport(token) {
   auth_(token, true);
   const users = readAll_('Users');
-  const courses = readAll_('Courses').filter(function (c) { return c.status === 'เผยแพร่'; }).sort(byOrder_);
-  const lessons = readAll_('Lessons').filter(function (l) { return l.status !== 'ซ่อน'; });
-  const questions = readAll_('Questions');
+  const cat = catalog_();
+  const courses = cat.courses.filter(function (c) { return c.status === 'เผยแพร่'; }).sort(byOrder_);
+  const lessons = cat.lessons.filter(function (l) { return l.status !== 'ซ่อน'; });
+  const questions = cat.questions;
   const progress = readAll_('Progress');
   const results = readAll_('QuizResults');
   const certs = readAll_('Certificates');
@@ -1126,6 +1158,7 @@ function adminUpdateUser(token, userId, data) {
     if (u && u.status === STATUS_PENDING) o.email_verified_at = new Date();  // ผู้ดูแลยืนยันแทน
   }
   update_('Users', 'user_id', userId, o);
+  clearUserCache_(userId);
   return adminReport(token);
 }
 
@@ -1134,5 +1167,6 @@ function adminResetPassword(token, userId) {
   const pw = String(Math.floor(100000 + Math.random() * 900000));
   const salt = Utilities.getUuid();
   if (!update_('Users', 'user_id', userId, { salt: salt, password_hash: hash_(pw, salt) })) throw new Error('ไม่พบผู้ใช้');
+  clearUserCache_(userId);
   return pw;
 }
