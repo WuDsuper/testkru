@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ตรวจสอบเกียรติบัตร</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body{font-family:Sarabun,sans-serif;background:#f1f5f9;margin:0;padding:24px;color:#0f172a}
+    .card{max-width:640px;margin:0 auto;background:#fff;border-radius:16px;padding:28px;box-shadow:0 10px 30px rgba(15,23,42,.08)}
+    h1{font-size:20px;margin:0 0 4px}p{margin:0 0 18px;color:#64748b}
+    table{width:100%;border-collapse:collapse}td{padding:10px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+    td:first-child{color:#64748b;width:34%}
+    .ok{background:#dcfce7;color:#166534;padding:12px 16px;border-radius:10px;font-weight:600;margin-bottom:16px}
+    .no{background:#fee2e2;color:#991b1b;padding:12px 16px;border-radius:10px;font-weight:600}
+    form{display:flex;gap:8px;margin-bottom:16px}input{flex:1;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font:inherit}
+    button{padding:10px 18px;border:0;border-radius:10px;background:#1e40af;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>ตรวจสอบเกียรติบัตร</h1>
+    <p id="org">ระบบอบรมออนไลน์ การประยุกต์ใช้เทคโนโลยีเพื่อการจัดการเรียนการสอน</p>
+    <form id="f"><input id="no" placeholder="กรอกเลขที่เกียรติบัตร" required><button>ตรวจสอบ</button></form>
+    <div id="out"></div>
+  </div>
+  <script src="assets/js/config.js"></script>
+  <script>
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function check(no) {
+      const out = document.getElementById('out');
+      out.innerHTML = '<p>กำลังตรวจสอบ</p>';
+      try {
+        const res = await fetch(API_URL + '?action=verifyCertificate&no=' + encodeURIComponent(no));
+        const r = await res.json();
+        if (!r.ok) throw new Error(r.error);
+        const d = r.data;
+        document.getElementById('org').innerHTML = esc(d.site_name) + '<br>' + esc(d.org_name);
+        if (!d.found) { out.innerHTML = '<div class="no">ไม่พบเกียรติบัตรเลขที่ ' + esc(no) + ' ในระบบ</div>'; return; }
+        const row = (k, v) => '<tr><td>' + k + '</td><td>' + esc(v) + '</td></tr>';
+        out.innerHTML = '<div class="ok">เกียรติบัตรนี้ออกโดยระบบจริง</div><table>' +
+          row('เลขที่', d.cert_no) + row('ชื่อ สกุล', d.full_name) + row('ตำแหน่ง', d.position) +
+          row('สถานศึกษา', d.school) + row('หลักสูตร', d.course_title) +
+          row('จำนวนชั่วโมง', d.hours + ' ชั่วโมง') + row('วันที่ออก', d.issued_at_th) + '</table>';
+      } catch (e) {
+        out.innerHTML = '<div class="no">ไม่สามารถตรวจสอบได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง</div>';
+      }
+    }
+    document.getElementById('f').addEventListener('submit', e => { e.preventDefault(); check(document.getElementById('no').value.trim()); });
+    const q = new URLSearchParams(location.search).get('no');
+    if (q) { document.getElementById('no').value = q; check(q); }
+  </script>
+</body>
+</html>

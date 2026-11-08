@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ระบบอบรมออนไลน์ การประยุกต์ใช้เทคโนโลยีเพื่อการจัดการเรียนการสอน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<!-- หน้าลงทะเบียนและเข้าสู่ระบบ -->
+<section id="view-auth" class="view auth-wrap hidden">
+  <div class="auth-brand">
+    <div class="brand-mark">TECH</div>
+    <h1 id="auth-site-name">ระบบอบรมออนไลน์</h1>
+    <p id="auth-org-name"></p>
+    <ul class="auth-points">
+      <li>เลือกเรียนหลักสูตรเทคโนโลยีเพื่อการสอนตามความสนใจ</li>
+      <li>เรียนผ่านวิดีโอ พร้อมแนวทางการประยุกต์ใช้ในห้องเรียน</li>
+      <li>ติดตามความก้าวหน้าของตนเองได้ตลอดเวลา</li>
+      <li>ผ่านเกณฑ์แล้วดาวน์โหลดเกียรติบัตรได้ทันที</li>
+    </ul>
+  </div>
+  <div class="auth-card">
+    <div class="tabs">
+      <button class="tab active" data-auth-tab="login">เข้าสู่ระบบ</button>
+      <button class="tab" data-auth-tab="register" id="tab-register">ลงทะเบียน</button>
+    </div>
+
+    <form id="form-login" class="form">
+      <label>อีเมล<input type="email" name="email" required autocomplete="email"></label>
+      <label>รหัสผ่าน<input type="password" name="password" required autocomplete="current-password"></label>
+      <button class="btn primary block" type="submit">เข้าสู่ระบบ</button>
+      <p class="muted small center">หากลืมรหัสผ่าน กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดรหัสผ่านใหม่</p>
+    </form>
+
+    <form id="form-register" class="form hidden">
+      <div class="grid-2">
+        <label>คำนำหน้า
+          <select name="prefix">
+            <option>นาย</option><option>นาง</option><option>นางสาว</option>
+            <option>ว่าที่ร้อยตรี</option><option>ดร.</option><option value="">อื่น ๆ (ไม่ระบุ)</option>
+          </select>
+        </label>
+        <label>ตำแหน่ง
+          <select name="position" required>
+            <option>ครู</option><option>ครูผู้ช่วย</option><option>พนักงานราชการ (ครู)</option>
+            <option>ครูอัตราจ้าง</option><option>ผู้บริหารสถานศึกษา</option><option>ศึกษานิเทศก์</option>
+            <option>บุคลากรทางการศึกษา</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>ชื่อ<input name="first_name" required></label>
+        <label>สกุล<input name="last_name" required></label>
+      </div>
+      <label>สถานศึกษา/หน่วยงาน<input name="school" required placeholder="เช่น โรงเรียนวัด..."></label>
+      <div class="grid-2">
+        <label>สังกัด<input name="affiliation" id="reg-affiliation"></label>
+        <label>โทรศัพท์<input name="phone" inputmode="tel"></label>
+      </div>
+      <label>อีเมล (ใช้เข้าสู่ระบบ)<input type="email" name="email" required autocomplete="email"></label>
+      <div class="grid-2">
+        <label>รหัสผ่าน<input type="password" name="password" minlength="6" required autocomplete="new-password"></label>
+        <label>ยืนยันรหัสผ่าน<input type="password" name="password2" minlength="6" required autocomplete="new-password"></label>
+      </div>
+      <p class="muted small">ชื่อ สกุล และสถานศึกษาจะปรากฏบนเกียรติบัตร กรุณากรอกให้ถูกต้อง</p>
+      <button class="btn primary block" type="submit">ลงทะเบียน</button>
+    </form>
+  </div>
+</section>
+
+<!-- แถบด้านบนหลังเข้าสู่ระบบ -->
+<header id="topbar" class="topbar hidden">
+  <div class="topbar-inner">
+    <a class="brand" href="#" data-nav="dashboard"><span class="brand-dot">T</span><span id="top-site-name">ระบบอบรมออนไลน์</span></a>
+    <nav class="nav">
+      <a href="#" data-nav="dashboard">หลักสูตร</a>
+      <a href="#" data-nav="profile">ข้อมูลส่วนตัว</a>
+      <a href="#" data-nav="admin" id="nav-admin" class="hidden">ผู้ดูแลระบบ</a>
+      <a href="#" id="btn-logout">ออกจากระบบ</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <!-- แดชบอร์ด -->
+  <section id="view-dashboard" class="view container hidden">
+    <div class="hero">
+      <div>
+        <p class="muted" id="dash-greet">ยินดีต้อนรับ</p>
+        <h2 id="dash-name"></h2>
+        <p class="muted" id="dash-school"></p>
+      </div>
+    </div>
+    <div class="stats" id="dash-stats"></div>
+    <div class="section-head">
+      <h3>หลักสูตรที่เปิดให้เรียน</h3>
+      <div class="chips" id="dash-filter">
+        <button class="chip active" data-filter="all">ทั้งหมด</button>
+        <button class="chip" data-filter="new">ยังไม่เริ่ม</button>
+        <button class="chip" data-filter="learning">กำลังเรียน</button>
+        <button class="chip" data-filter="passed">ผ่านแล้ว</button>
+      </div>
+    </div>
+    <div class="course-grid" id="course-grid"></div>
+  </section>
+
+  <!-- หน้าเรียน -->
+  <section id="view-course" class="view container hidden">
+    <button class="btn ghost small" data-nav="dashboard">กลับหน้าหลักสูตร</button>
+    <div class="course-head" id="course-head"></div>
+    <div class="course-layout">
+      <aside class="lesson-list" id="lesson-list"></aside>
+      <div class="lesson-main" id="lesson-main"></div>
+    </div>
+  </section>
+
+  <!-- ข้อมูลส่วนตัว -->
+  <section id="view-profile" class="view container narrow hidden">
+    <h2>ข้อมูลส่วนตัว</h2>
+    <form id="form-profile" class="card form">
+      <div class="grid-2">
+        <label>คำนำหน้า<input name="prefix"></label>
+        <label>ตำแหน่ง<input name="position"></label>
+      </div>
+      <div class="grid-2">
+        <label>ชื่อ<input name="first_name" required></label>
+        <label>สกุล<input name="last_name" required></label>
+      </div>
+      <label>สถานศึกษา/หน่วยงาน<input name="school"></label>
+      <div class="grid-2">
+        <label>สังกัด<input name="affiliation"></label>
+        <label>โทรศัพท์<input name="phone"></label>
+      </div>
+      <label>อีเมล<input name="email" disabled></label>
+      <button class="btn primary" type="submit">บันทึกข้อมูล</button>
+    </form>
+    <h3>เปลี่ยนรหัสผ่าน</h3>
+    <form id="form-password" class="card form">
+      <label>รหัสผ่านเดิม<input type="password" name="old" required></label>
+      <div class="grid-2">
+        <label>รหัสผ่านใหม่<input type="password" name="new1" minlength="6" required></label>
+        <label>ยืนยันรหัสผ่านใหม่<input type="password" name="new2" minlength="6" required></label>
+      </div>
+      <button class="btn" type="submit">เปลี่ยนรหัสผ่าน</button>
+    </form>
+  </section>
+
+  <!-- ผู้ดูแลระบบ -->
+  <section id="view-admin" class="view container hidden">
+    <h2>ส่วนผู้ดูแลระบบ</h2>
+    <div class="tabs admin-tabs">
+      <button class="tab active" data-admin-tab="report">รายงานภาพรวม</button>
+      <button class="tab" data-admin-tab="courses">หลักสูตร</button>
+      <button class="tab" data-admin-tab="lessons">บทเรียน</button>
+      <button class="tab" data-admin-tab="questions">แบบทดสอบ</button>
+      <button class="tab" data-admin-tab="settings">ตั้งค่าระบบ</button>
+    </div>
+    <div id="admin-body"></div>
+  </section>
+</main>
+
+<footer id="footer" class="footer"></footer>
+
+<!-- หน้าต่างแบบฟอร์ม -->
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="icon-btn" id="modal-close" aria-label="ปิด">&times;</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- หน้าต่างเกียรติบัตร -->
+<div id="cert-modal" class="modal hidden">
+  <div class="modal-box wide">
+    <div class="modal-head"><h3>เกียรติบัตร</h3><button class="icon-btn" id="cert-close" aria-label="ปิด">&times;</button></div>
+    <div id="cert-body"><div class="loading-inline">กำลังจัดทำเกียรติบัตร</div></div>
+  </div>
+</div>
+
+<div id="loading" class="loading hidden"><div class="spinner"></div><p id="loading-text">กำลังโหลด</p></div>
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
