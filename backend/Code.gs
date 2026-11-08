@@ -25,12 +25,13 @@ const DEFAULT_ADMIN_EMAIL = 'admin@nst1.local';
 const DEFAULT_ADMIN_PASSWORD = 'admin1234';
 
 const SCHEMA = {
-  Users: ['user_id', 'email', 'password_hash', 'salt', 'prefix', 'first_name', 'last_name', 'position', 'school', 'affiliation', 'phone', 'role', 'status', 'created_at', 'last_login'],
-  Courses: ['course_id', 'order', 'title', 'tool_name', 'description', 'objectives', 'hours', 'color', 'cover_url', 'pass_percent', 'status', 'created_at'],
+  Users: ['user_id', 'email', 'password_hash', 'salt', 'prefix', 'first_name', 'last_name', 'position', 'school', 'affiliation', 'phone', 'role', 'status', 'created_at', 'last_login', 'email_verified_at'],
+  Courses: ['course_id', 'order', 'title', 'tool_name', 'description', 'objectives', 'hours', 'color', 'cover_url', 'pass_percent', 'status', 'created_at', 'enroll_open'],
   Lessons: ['lesson_id', 'course_id', 'order', 'title', 'youtube_url', 'duration_min', 'content', 'application', 'resource_url', 'status'],
   Questions: ['question_id', 'course_id', 'order', 'question', 'choice_a', 'choice_b', 'choice_c', 'choice_d', 'answer'],
   Progress: ['progress_key', 'user_id', 'course_id', 'lesson_id', 'watched_percent', 'completed', 'updated_at', 'completed_at'],
   QuizResults: ['result_id', 'user_id', 'course_id', 'score', 'total', 'percent', 'passed', 'submitted_at'],
+  Enrollments: ['enroll_id', 'user_id', 'course_id', 'enrolled_at', 'status'],
   Certificates: ['cert_no', 'user_id', 'course_id', 'full_name', 'position', 'school', 'course_title', 'hours', 'issued_at'],
   Settings: ['key', 'value', 'description']
 };
@@ -47,6 +48,7 @@ const DEFAULT_SETTINGS = [
   ['SIGNATURE_FILE_ID', '', 'File ID ของภาพลายมือชื่อผู้ลงนาม (PNG พื้นใส) เว้นว่างได้'],
   ['CERT_BG_FILE_ID', '', 'File ID ของภาพพื้นหลังเกียรติบัตรแนวนอน A4 เว้นว่างเพื่อใช้แบบมาตรฐานของระบบ'],
   ['REGISTRATION_OPEN', 'เปิด', 'เปิด หรือ ปิด การลงทะเบียนผู้ใช้ใหม่'],
+  ['REQUIRE_EMAIL_VERIFY', 'เปิด', 'เปิด หรือ ปิด การยืนยันอีเมลด้วยรหัส 8 หลักเมื่อลงทะเบียน'],
   ['FRONTEND_URL', '', 'ที่อยู่หน้าเว็บบน GitHub Pages เช่น https://ชื่อผู้ใช้.github.io/tech-training/ ใช้สร้างลิงก์ตรวจสอบเกียรติบัตร'],
   ['DEVELOPER', 'นายสรวิศ จันพุ่ม ศึกษานิเทศก์ ปฏิบัติหน้าที่ ผอ.กลุ่ม DLICT', 'ข้อความผู้พัฒนาที่ส่วนท้ายหน้าเว็บ']
 ];
@@ -58,8 +60,10 @@ const DEFAULT_SETTINGS = [
 // ฟังก์ชันที่อนุญาตให้เรียกจากภายนอก (ฟังก์ชันที่ลงท้ายด้วย _ เรียกไม่ได้)
 const API_ACTIONS = {
   getPublicSettings: getPublicSettings, register: register, login: login, logout: logout,
+  verifyEmail: verifyEmail, resendOtp: resendOtp,
   updateProfile: updateProfile, changePassword: changePassword,
   getDashboard: getDashboard, getCourse: getCourse, saveProgress: saveProgress,
+  enrollCourse: enrollCourse,
   getQuiz: getQuiz, submitQuiz: submitQuiz, getCertificate: getCertificate,
   verifyCertificate: verifyCertificate,
   adminGetData: adminGetData, adminSaveCourse: adminSaveCourse, adminDeleteCourse: adminDeleteCourse,
@@ -83,7 +87,33 @@ function runAction_(action, args) {
   }
 }
 
+// เพิ่มชีตหรือคอลัมน์ที่ขาดอัตโนมัติ เมื่ออัปเดตโค้ดรุ่นใหม่ทับระบบเดิม
+function ensureSchema_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('SCHEMA_V3')) return;
+  const ss = ss_();
+  Object.keys(SCHEMA).forEach(function (name) {
+    let s = ss.getSheetByName(name);
+    if (!s) {
+      s = ss.insertSheet(name);
+      s.getRange(1, 1, 1, SCHEMA[name].length).setValues([SCHEMA[name]])
+        .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+      s.setFrozenRows(1);
+      return;
+    }
+    const head = s.getLastColumn() ? headers_(s) : [];
+    SCHEMA[name].forEach(function (h) {
+      if (head.indexOf(h) < 0) {
+        s.getRange(1, head.length + 1).setValue(h).setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+        head.push(h);
+      }
+    });
+  });
+  cache.put('SCHEMA_V3', '1', 21600);
+}
+
 function doPost(e) {
+  try { ensureSchema_(); } catch (err) { /* ยังไม่ได้ setup */ }
   let body = {};
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
   catch (err) { return json_({ ok: false, error: 'รูปแบบข้อมูลไม่ถูกต้อง' }); }
@@ -227,7 +257,7 @@ function seedSampleData_() {
     insert_('Courses', {
       course_id: c[0], order: c[1], title: c[2], tool_name: c[3], description: c[4],
       objectives: c[5], hours: c[6], color: c[7], cover_url: '', pass_percent: 70,
-      status: 'เผยแพร่', created_at: now
+      status: 'เผยแพร่', created_at: now, enroll_open: 'เปิด'
     });
   });
 
@@ -473,9 +503,80 @@ function auth_(token, needAdmin) {
   if (!uid) throw new Error('SESSION_EXPIRED');
   cache.put('S_' + token, uid, SESSION_HOURS * 3600);
   const u = readAll_('Users').find(function (x) { return String(x.user_id) === uid; });
-  if (!u || u.status === 'ระงับ') throw new Error('SESSION_EXPIRED');
+  if (!u || u.status === 'ระงับ' || u.status === STATUS_PENDING) throw new Error('SESSION_EXPIRED');
   if (needAdmin && u.role !== 'admin') throw new Error('ไม่มีสิทธิ์เข้าถึงส่วนผู้ดูแลระบบ');
   return u;
+}
+
+/* ---------- การยืนยันอีเมลด้วยรหัสลับ 8 หลัก ---------- */
+
+const STATUS_PENDING = 'รอยืนยันอีเมล';
+const OTP_TTL_MIN = 10;          // รหัสมีอายุ 10 นาที
+const OTP_MAX_TRIES = 5;         // กรอกผิดได้ไม่เกิน 5 ครั้งต่อรหัส
+const OTP_RESEND_SEC = 60;       // ขอรหัสใหม่ได้ทุก 60 วินาที
+const OTP_MAX_SEND_HOUR = 5;     // ส่งรหัสไปยังอีเมลเดียวกันได้ไม่เกิน 5 ครั้งต่อชั่วโมง
+
+function verifyRequired_() { return String(getSettings_().REQUIRE_EMAIL_VERIFY || 'เปิด') !== 'ปิด'; }
+
+// สุ่มเลข 8 หลักจาก UUID (สุ่มด้วยตัวสร้างของ Google) ไม่ใช้ Math.random
+function otpCode_() {
+  const hex = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  let n = 0;
+  for (let i = 0; i < hex.length; i++) n = (n * 16 + parseInt(hex[i], 16)) % 100000000;
+  return pad_(n, 8);
+}
+
+function maskEmail_(email) {
+  const p = String(email).split('@');
+  const name = p[0];
+  const shown = name.length <= 2 ? name.charAt(0) : name.slice(0, 2);
+  return shown + '*'.repeat(Math.max(2, name.length - shown.length)) + '@' + (p[1] || '');
+}
+
+function sendOtp_(user, force) {
+  const cache = CacheService.getScriptCache();
+  const email = String(user.email).toLowerCase();
+  const cdKey = 'OTPCD_' + email, cntKey = 'OTPN_' + email;
+  if (!force && cache.get(cdKey)) {
+    const left = Math.max(1, Math.ceil((Number(cache.get(cdKey)) - Date.now()) / 1000));
+    return { email: email, email_masked: maskEmail_(email), resend_after: left, expires_in: OTP_TTL_MIN * 60, sent: false };
+  }
+  const count = Number(cache.get(cntKey) || 0);
+  if (count >= OTP_MAX_SEND_HOUR) throw new Error('ขอรหัสยืนยันเกินจำนวนที่กำหนด กรุณารอ 1 ชั่วโมงแล้วลองใหม่');
+
+  const code = otpCode_();
+  const salt = Utilities.getUuid();
+  cache.put('OTP_' + email, JSON.stringify({ h: hash_(code, salt), s: salt, t: 0 }), OTP_TTL_MIN * 60);
+  cache.put(cdKey, String(Date.now() + OTP_RESEND_SEC * 1000), OTP_RESEND_SEC);
+  cache.put(cntKey, String(count + 1), 3600);
+
+  const st = getSettings_();
+  const name = fullName_(user);
+  const spaced = code.slice(0, 4) + ' ' + code.slice(4);
+  const html =
+    '<div style="font-family:Sarabun,Tahoma,sans-serif;max-width:520px;margin:auto;color:#0f172a">' +
+    '<h2 style="color:#1e3a8a;margin-bottom:4px">ยืนยันอีเมลสำหรับการลงทะเบียน</h2>' +
+    '<p style="color:#64748b;margin-top:0">' + esc_(st.SITE_NAME) + '</p>' +
+    '<p>เรียน ' + esc_(name) + '</p>' +
+    '<p>รหัสยืนยันตัวตนของท่านคือ</p>' +
+    '<div style="font-size:34px;font-weight:700;letter-spacing:8px;background:#eff6ff;color:#1e3a8a;padding:16px;text-align:center;border-radius:12px">' + spaced + '</div>' +
+    '<p>กรุณากรอกรหัสนี้ในหน้าลงทะเบียนภายใน ' + OTP_TTL_MIN + ' นาที</p>' +
+    '<p style="color:#b91c1c">ห้ามเปิดเผยรหัสนี้แก่ผู้อื่น เจ้าหน้าที่จะไม่สอบถามรหัสนี้จากท่านไม่ว่ากรณีใด</p>' +
+    '<p style="color:#64748b;font-size:13px">หากท่านไม่ได้ลงทะเบียน กรุณาเพิกเฉยต่ออีเมลฉบับนี้<br>' + esc_(st.ORG_NAME) + '</p></div>';
+  MailApp.sendEmail({
+    to: email,
+    subject: 'รหัสยืนยันอีเมล ' + spaced + ' ' + st.SITE_NAME,
+    htmlBody: html,
+    body: 'รหัสยืนยันอีเมลของท่านคือ ' + code + ' ใช้ได้ภายใน ' + OTP_TTL_MIN + ' นาที ห้ามเปิดเผยรหัสนี้แก่ผู้อื่น',
+    name: 'ระบบอบรมออนไลน์'
+  });
+  return { email: email, email_masked: maskEmail_(email), resend_after: OTP_RESEND_SEC, expires_in: OTP_TTL_MIN * 60, sent: true };
+}
+
+function pendingResult_(user, force) {
+  const r = sendOtp_(user, force);
+  r.need_verify = true;
+  return r;
 }
 
 function register(data) {
@@ -490,24 +591,73 @@ function register(data) {
   });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('รูปแบบอีเมลไม่ถูกต้อง');
   if (pw.length < 6) throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+  const needVerify = verifyRequired_();
 
-  return withLock_(function () {
-    if (readAll_('Users').some(function (u) { return String(u.email).toLowerCase() === email; })) {
-      throw new Error('อีเมลนี้ลงทะเบียนแล้ว กรุณาเข้าสู่ระบบ');
-    }
+  const user = withLock_(function () {
+    const old = readAll_('Users').find(function (u) { return String(u.email).toLowerCase() === email; });
+    if (old && old.status !== STATUS_PENDING) throw new Error('อีเมลนี้ลงทะเบียนแล้ว กรุณาเข้าสู่ระบบ');
     const salt = Utilities.getUuid();
-    const user = {
-      user_id: 'U' + Date.now() + Math.floor(Math.random() * 1000),
+    const rec = {
       email: email, password_hash: hash_(pw, salt), salt: salt,
       prefix: String(data.prefix || '').trim(), first_name: String(data.first_name).trim(),
       last_name: String(data.last_name).trim(), position: String(data.position).trim(),
       school: String(data.school).trim(), affiliation: String(data.affiliation || '').trim(),
-      phone: String(data.phone || '').trim(), role: 'teacher', status: 'ใช้งาน',
-      created_at: new Date(), last_login: new Date()
+      phone: String(data.phone || '').trim(), role: 'teacher',
+      status: needVerify ? STATUS_PENDING : 'ใช้งาน',
+      last_login: needVerify ? '' : new Date()
     };
-    insert_('Users', user);
-    return { token: createSession_(user.user_id), user: publicUser_(user) };
+    if (old) {
+      // ลงทะเบียนซ้ำขณะยังไม่ยืนยัน ให้ปรับข้อมูลตามที่กรอกล่าสุด
+      update_('Users', 'user_id', old.user_id, rec);
+      return Object.assign({}, old, rec);
+    }
+    rec.user_id = 'U' + Date.now() + Math.floor(Math.random() * 1000);
+    rec.created_at = new Date();
+    insert_('Users', rec);
+    return rec;
   });
+
+  if (needVerify) return pendingResult_(user, false);
+  return { token: createSession_(user.user_id), user: publicUser_(user) };
+}
+
+function verifyEmail(email, code) {
+  email = String(email || '').trim().toLowerCase();
+  code = String(code || '').replace(/\D/g, '');
+  if (code.length !== 8) throw new Error('กรุณากรอกรหัสยืนยันให้ครบ 8 หลัก');
+  const u = readAll_('Users').find(function (x) { return String(x.email).toLowerCase() === email; });
+  if (!u) throw new Error('ไม่พบข้อมูลการลงทะเบียนของอีเมลนี้');
+  if (u.status === 'ระงับ') throw new Error('บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+  if (u.status !== STATUS_PENDING) throw new Error('อีเมลนี้ยืนยันแล้ว กรุณาเข้าสู่ระบบ');
+
+  const cache = CacheService.getScriptCache();
+  const key = 'OTP_' + email;
+  return withLock_(function () {
+    const raw = cache.get(key);
+    if (!raw) throw new Error('รหัสยืนยันหมดอายุแล้ว กรุณากดขอรหัสใหม่');
+    const o = JSON.parse(raw);
+    if (hash_(code, o.s) !== o.h) {
+      o.t = (o.t || 0) + 1;
+      if (o.t >= OTP_MAX_TRIES) {
+        cache.remove(key);
+        throw new Error('กรอกรหัสผิดเกิน ' + OTP_MAX_TRIES + ' ครั้ง รหัสนี้ถูกยกเลิก กรุณากดขอรหัสใหม่');
+      }
+      cache.put(key, JSON.stringify(o), OTP_TTL_MIN * 60);
+      throw new Error('รหัสยืนยันไม่ถูกต้อง กรอกได้อีก ' + (OTP_MAX_TRIES - o.t) + ' ครั้ง');
+    }
+    cache.remove(key);
+    const now = new Date();
+    update_('Users', 'user_id', u.user_id, { status: 'ใช้งาน', email_verified_at: now, last_login: now });
+    const nu = Object.assign({}, u, { status: 'ใช้งาน' });
+    return { token: createSession_(u.user_id), user: publicUser_(nu) };
+  });
+}
+
+function resendOtp(email) {
+  email = String(email || '').trim().toLowerCase();
+  const u = readAll_('Users').find(function (x) { return String(x.email).toLowerCase() === email; });
+  if (!u || u.status !== STATUS_PENDING) throw new Error('ไม่พบบัญชีที่รอการยืนยันของอีเมลนี้');
+  return pendingResult_(u, false);
 }
 
 function login(email, password) {
@@ -517,8 +667,19 @@ function login(email, password) {
     throw new Error('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
   }
   if (u.status === 'ระงับ') throw new Error('บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+  if (u.status === STATUS_PENDING) {
+    if (verifyRequired_()) return pendingResult_(u, false);
+    update_('Users', 'user_id', u.user_id, { status: 'ใช้งาน' });
+  }
   update_('Users', 'user_id', u.user_id, { last_login: new Date() });
   return { token: createSession_(u.user_id), user: publicUser_(u) };
+}
+
+// รันฟังก์ชันนี้ใน Apps Script 1 ครั้ง เพื่ออนุญาตสิทธิ์ส่งอีเมล และทดสอบว่าส่งได้จริง
+function testSendEmail() {
+  const me = Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail(me, 'ทดสอบการส่งอีเมลจากระบบอบรมออนไลน์', 'ระบบส่งอีเมลได้ตามปกติ โควตาคงเหลือวันนี้ ' + MailApp.getRemainingDailyQuota() + ' ฉบับ');
+  Logger.log('ส่งอีเมลทดสอบไปที่ ' + me + ' โควตาคงเหลือ ' + MailApp.getRemainingDailyQuota());
 }
 
 function logout(token) {
@@ -556,9 +717,12 @@ function loadUserContext_(userId) {
     questions: readAll_('Questions'),
     progress: readAll_('Progress').filter(function (p) { return String(p.user_id) === String(userId); }),
     results: readAll_('QuizResults').filter(function (r) { return String(r.user_id) === String(userId); }),
-    certs: readAll_('Certificates').filter(function (c) { return String(c.user_id) === String(userId); })
+    certs: readAll_('Certificates').filter(function (c) { return String(c.user_id) === String(userId); }),
+    enrolls: readAll_('Enrollments').filter(function (e) { return String(e.user_id) === String(userId) && e.status !== 'ยกเลิก'; })
   };
 }
+
+function isEnrollOpen_(c) { return String(c.enroll_open || 'เปิด') !== 'ปิด'; }
 
 function courseStatus_(c, ctx) {
   const ls = ctx.lessons.filter(function (l) { return l.course_id === c.course_id; });
@@ -579,13 +743,21 @@ function courseStatus_(c, ctx) {
   const doneSteps = done + (qCount > 0 && quizPassed ? 1 : 0);
   const started = prog.some(function (p) { return Number(p.watched_percent) > 0 || isTrue_(p.completed); });
   const cert = ctx.certs.find(function (x) { return x.course_id === c.course_id; });
+  const en = (ctx.enrolls || []).find(function (x) { return x.course_id === c.course_id; });
+  // ผู้ที่เริ่มเรียนก่อนมีระบบลงทะเบียนหลักสูตร ถือว่าลงทะเบียนแล้ว
+  const enrolled = !!en || started || best >= 0 || certIssued;
+  let state = 'open';
+  if (passed) state = 'passed';
+  else if (started || best >= 0) state = 'learning';
+  else if (enrolled) state = 'enrolled';
   return {
     course_id: c.course_id, title: c.title, tool_name: c.tool_name, description: c.description,
     objectives: c.objectives, hours: c.hours, color: c.color || '#1e3a8a', cover_url: c.cover_url,
     pass_percent: passPercent, lesson_count: ls.length, lessons_done: done,
     question_count: qCount, best_quiz: best, lessons_done_all: lessonsDone, quiz_passed: quizPassed && qCount > 0,
     passed: passed, percent: steps ? Math.round(doneSteps / steps * 100) : 0,
-    state: passed ? 'passed' : (started || best >= 0 ? 'learning' : 'new'),
+    state: state, enrolled: enrolled, enrolled_at: en ? en.enrolled_at : '',
+    enroll_open: isEnrollOpen_(c),
     cert_no: cert ? cert.cert_no : ''
   };
 }
@@ -600,6 +772,7 @@ function getDashboard(token) {
     courses: list,
     summary: {
       total: list.length,
+      enrolled: list.filter(function (c) { return c.enrolled; }).length,
       learning: list.filter(function (c) { return c.state === 'learning'; }).length,
       passed: list.filter(function (c) { return c.passed; }).length,
       hours: list.filter(function (c) { return c.passed; }).reduce(function (s, c) { return s + (Number(c.hours) || 0); }, 0)
@@ -625,10 +798,39 @@ function getCourse(token, courseId) {
   return { course: status, lessons: lessons, min_watch: Number(getSettings_().MIN_WATCH_PERCENT) || 80 };
 }
 
+function enrollCourse(token, courseId) {
+  const u = auth_(token);
+  const ctx = loadUserContext_(u.user_id);
+  const c = ctx.courses.find(function (x) { return x.course_id === courseId; });
+  if (!c) throw new Error('ไม่พบหลักสูตรนี้ หรือหลักสูตรยังไม่เผยแพร่');
+  if (courseStatus_(c, ctx).enrolled) return getCourse(token, courseId);
+  if (!isEnrollOpen_(c)) throw new Error('หลักสูตรนี้ปิดรับลงทะเบียนแล้ว');
+  withLock_(function () {
+    const dup = readAll_('Enrollments').some(function (e) {
+      return String(e.user_id) === String(u.user_id) && e.course_id === courseId && e.status !== 'ยกเลิก';
+    });
+    if (!dup) {
+      insert_('Enrollments', {
+        enroll_id: 'E' + Date.now() + Math.floor(Math.random() * 1000), user_id: u.user_id,
+        course_id: courseId, enrolled_at: new Date(), status: 'ลงทะเบียน'
+      });
+    }
+  });
+  return getCourse(token, courseId);
+}
+
+function requireEnrolled_(u, courseId) {
+  const ctx = loadUserContext_(u.user_id);
+  const c = ctx.courses.find(function (x) { return x.course_id === courseId; });
+  if (!c) throw new Error('ไม่พบหลักสูตร');
+  if (!courseStatus_(c, ctx).enrolled) throw new Error('กรุณาลงทะเบียนหลักสูตรก่อนเริ่มเรียน');
+}
+
 function saveProgress(token, lessonId, percent) {
   const u = auth_(token);
   const lesson = readAll_('Lessons').find(function (l) { return l.lesson_id === lessonId; });
   if (!lesson) throw new Error('ไม่พบบทเรียน');
+  requireEnrolled_(u, lesson.course_id);
   const minWatch = Number(getSettings_().MIN_WATCH_PERCENT) || 80;
   const pct = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
   const key = u.user_id + '|' + lessonId;
@@ -663,6 +865,7 @@ function getQuiz(token, courseId) {
   const c = ctx.courses.find(function (x) { return x.course_id === courseId; });
   if (!c) throw new Error('ไม่พบหลักสูตร');
   const st = courseStatus_(c, ctx);
+  if (!st.enrolled) throw new Error('กรุณาลงทะเบียนหลักสูตรก่อนเริ่มเรียน');
   if (!st.lessons_done_all) throw new Error('กรุณาเรียนให้ครบทุกบทเรียนก่อนทำแบบทดสอบ');
   const qs = ctx.questions.filter(function (q) { return q.course_id === courseId; }).sort(byOrder_).map(function (q) {
     return {
@@ -779,7 +982,7 @@ function clean_(obj, fields) {
 
 function adminSaveCourse(token, data) {
   auth_(token, true);
-  const o = clean_(data, ['course_id', 'order', 'title', 'tool_name', 'description', 'objectives', 'hours', 'color', 'cover_url', 'pass_percent', 'status']);
+  const o = clean_(data, ['course_id', 'order', 'title', 'tool_name', 'description', 'objectives', 'hours', 'color', 'cover_url', 'pass_percent', 'status', 'enroll_open']);
   if (!o.title) throw new Error('กรุณากรอกชื่อหลักสูตร');
   return withLock_(function () {
     if (o.course_id && findRow_('Courses', 'course_id', o.course_id) > 0) {
@@ -865,19 +1068,21 @@ function adminReport(token) {
   const progress = readAll_('Progress');
   const results = readAll_('QuizResults');
   const certs = readAll_('Certificates');
+  const enrolls = readAll_('Enrollments').filter(function (e) { return e.status !== 'ยกเลิก'; });
 
   const rows = users.map(function (u) {
     const ctx = {
       courses: courses, lessons: lessons, questions: questions,
       progress: progress.filter(function (p) { return String(p.user_id) === String(u.user_id); }),
       results: results.filter(function (r) { return String(r.user_id) === String(u.user_id); }),
-      certs: certs.filter(function (c) { return String(c.user_id) === String(u.user_id); })
+      certs: certs.filter(function (c) { return String(c.user_id) === String(u.user_id); }),
+      enrolls: enrolls.filter(function (e) { return String(e.user_id) === String(u.user_id); })
     };
     const per = {};
     let passed = 0;
     courses.forEach(function (c) {
       const s = courseStatus_(c, ctx);
-      per[c.course_id] = { percent: s.percent, passed: s.passed, state: s.state };
+      per[c.course_id] = { percent: s.percent, passed: s.passed, state: s.state, enrolled: s.enrolled };
       if (s.passed) passed++;
     });
     return {
@@ -890,7 +1095,8 @@ function adminReport(token) {
   const perCourse = courses.map(function (c) {
     return {
       course_id: c.course_id, title: c.title, tool_name: c.tool_name,
-      started: rows.filter(function (r) { return r.courses[c.course_id].state !== 'new'; }).length,
+      enrolled: rows.filter(function (r) { return r.courses[c.course_id].enrolled; }).length,
+      started: rows.filter(function (r) { var st = r.courses[c.course_id].state; return st === 'learning' || st === 'passed'; }).length,
       passed: rows.filter(function (r) { return r.courses[c.course_id].passed; }).length
     };
   });
@@ -902,7 +1108,8 @@ function adminReport(token) {
     summary: {
       users: users.filter(function (u) { return u.role !== 'admin'; }).length,
       certificates: certs.length,
-      active: rows.filter(function (r) { return r.role !== 'admin' && Object.keys(r.courses).some(function (k) { return r.courses[k].state !== 'new'; }); }).length,
+      active: rows.filter(function (r) { return r.role !== 'admin' && Object.keys(r.courses).some(function (k) { return r.courses[k].enrolled; }); }).length,
+      enrollments: enrolls.length,
       courses: courses.length
     }
   };
@@ -914,6 +1121,10 @@ function adminUpdateUser(token, userId, data) {
     throw new Error('ไม่สามารถลดสิทธิ์บัญชีของตนเองได้');
   }
   const o = clean_(data, ['role', 'status']);
+  if (o.status === 'ใช้งาน') {
+    const u = readAll_('Users').find(function (x) { return String(x.user_id) === String(userId); });
+    if (u && u.status === STATUS_PENDING) o.email_verified_at = new Date();  // ผู้ดูแลยืนยันแทน
+  }
   update_('Users', 'user_id', userId, o);
   return adminReport(token);
 }
