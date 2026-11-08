@@ -54,6 +54,11 @@ a{color:var(--primary)}
 .auth-points li{margin-bottom:8px}
 .auth-card{background:#fff;padding:40px;display:flex;flex-direction:column;justify-content:center;max-width:560px;width:100%;margin:0 auto}
 
+/* ยืนยันอีเมล */
+.otp-input{font-size:2rem!important;letter-spacing:.5em;text-align:center;font-weight:700;padding:12px!important}
+.verify-actions{display:flex;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap}
+.badge.pending{background:var(--warn-l);color:var(--warn)}
+
 /* แถบบน */
 .topbar{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
 .topbar-inner{max-width:1200px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -88,9 +93,11 @@ a{color:var(--primary)}
 .progress{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden}
 .progress > span{display:block;height:100%;background:var(--primary);border-radius:99px;transition:width .4s}
 .progress.ok > span{background:var(--ok)}
+.course-foot .btn{white-space:nowrap}
 .course-foot{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600;background:#fff;color:var(--ink)}
-.badge.new{background:#f1f5f9;color:#475569}
+.badge.new,.badge.open{background:#f1f5f9;color:#475569}
+.badge.enrolled{background:var(--primary-l);color:var(--primary-d)}
 .badge.learning{background:var(--warn-l);color:var(--warn)}
 .badge.passed{background:var(--ok-l);color:var(--ok)}
 .badge.hidden-st{background:#f1f5f9;color:#94a3b8}
