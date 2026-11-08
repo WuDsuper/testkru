@@ -907,7 +907,7 @@ async function drawCertificate(d) {
 
   let y = 200;
   if (logo) {
-    const h = 150, w = logo.width * h / logo.height;
+    const h = 250, w = logo.width * h / logo.height;
     x.drawImage(logo, cx - w / 2, 110, w, h);
     y = 320;
   }
