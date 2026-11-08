@@ -788,7 +788,7 @@ async function openCert(courseId) {
       <div class="cert-actions">
         <button class="btn primary" onclick="App.downloadPdf()">ดาวน์โหลด PDF</button>
         <button class="btn" onclick="App.downloadPng()">ดาวน์โหลดภาพ PNG</button>
-        <a class="btn" href="${esc(d.verify_url)}" target="_blank" rel="noopener">เปิดลิงก์ตรวจสอบ</a>
+        <a class="btn" href="${esc(certVerifyUrl(d))}" target="_blank" rel="noopener">เปิดลิงก์ตรวจสอบ</a>
       </div>
       <p class="muted small center">เกียรติบัตรเลขที่ ${esc(d.cert_no)} หากใช้งานบนโทรศัพท์มือถือ สามารถกดค้างที่ภาพเพื่อบันทึกได้</p>`;
   } catch (e) {
@@ -864,13 +864,31 @@ function drawFrame(x, W, H) {
   });
 }
 
-function qrCanvas(text, size) {
-  try {
-    if (!window.QRCode) return null;
-    const div = document.createElement('div');
-    new QRCode(div, { text: text, width: size, height: size, correctLevel: QRCode.CorrectLevel.L });
-    return div.querySelector('canvas');
-  } catch (e) { return null; }
+// ลิงก์ตรวจสอบเกียรติบัตร ใช้ที่อยู่ของหน้าเว็บที่เปิดอยู่ (GitHub Pages) เพื่อให้ลิงก์สั้น คิวอาร์จึงโปร่งและสแกนง่าย
+function certVerifyUrl(d) {
+  if (/^https?:$/.test(location.protocol)) {
+    return new URL('verify.html?no=' + encodeURIComponent(d.cert_no), location.href).href;
+  }
+  return d.verify_url;
+}
+
+// วาดคิวอาร์โค้ดลงบนเกียรติบัตรโดยตรงทีละจุด ภาพคมชัด ไม่เบลอเมื่อย่อหรือพิมพ์
+function drawQr(ctx, text, x, y, size) {
+  if (typeof window.qrcode !== 'function') return 0;
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount(), quiet = 4, total = n + quiet * 2;
+  const cell = Math.max(1, Math.floor(size / total)), real = cell * total;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, real, real);
+  ctx.fillStyle = '#000000';
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell, cell);
+    }
+  }
+  return real;
 }
 
 async function drawCertificate(d) {
@@ -918,20 +936,18 @@ async function drawCertificate(d) {
   sy += 150;
   x.font = '400 36px Sarabun'; x.fillStyle = '#0f172a';
   x.fillText('(' + d.signer_name + ')', cx, sy);
-  drawLines(x, d.signer_position, cx, sy + 50, 1100, '400 32px Sarabun', '#334155', 44);
+  drawLines(x, d.signer_position, cx, sy + 50, 980, '400 32px Sarabun', '#334155', 44);
 
   // เลขที่และคิวอาร์โค้ด
   x.textAlign = 'left';
   x.font = '400 26px Sarabun'; x.fillStyle = '#475569';
   x.fillText('เลขที่ ' + d.cert_no, 130, H - 120);
-  const qr = qrCanvas(d.verify_url, 150);
-  if (qr) {
-    x.fillStyle = '#ffffff';
-    x.fillRect(W - 300, H - 310, 170, 170);
-    x.drawImage(qr, W - 290, H - 300, 150, 150);
+  const vurl = certVerifyUrl(d);
+  const qsize = drawQr(x, vurl, W - 480, H - 500, 370);
+  if (qsize) {
     x.textAlign = 'center';
-    x.font = '400 22px Sarabun'; x.fillStyle = '#475569';
-    x.fillText('สแกนเพื่อตรวจสอบ', W - 215, H - 110);
+    x.font = '400 24px Sarabun'; x.fillStyle = '#475569';
+    x.fillText('สแกนเพื่อตรวจสอบเกียรติบัตร', W - 480 + qsize / 2, H - 500 + qsize + 30);
   }
   return c;
 }
