@@ -11,7 +11,7 @@ const S = {
 
 const $ = (s, el) => (el || document).querySelector(s);
 const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
-const STATE_LABEL = { new: 'ยังไม่เริ่ม', learning: 'กำลังเรียน', passed: 'ผ่านแล้ว' };
+const STATE_LABEL = { open: 'ยังไม่ลงทะเบียน', enrolled: 'ลงทะเบียนแล้ว', learning: 'กำลังเรียน', passed: 'ผ่านแล้ว' };
 const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 const LOCK_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 
@@ -243,7 +243,7 @@ function renderDashboard() {
   const sm = d.summary;
   $('#dash-stats').innerHTML = [
     ['หลักสูตรที่เปิดให้เรียน', sm.total],
-    ['กำลังเรียน', sm.learning],
+    ['ลงทะเบียนแล้ว', sm.enrolled],
     ['ผ่านแล้ว', sm.passed],
     ['ชั่วโมงอบรมสะสม', sm.hours]
   ].map(s => `<div class="stat"><div class="num">${esc(s[1])}</div><div class="lbl">${esc(s[0])}</div></div>`).join('');
@@ -251,7 +251,7 @@ function renderDashboard() {
 }
 
 function renderCourseGrid() {
-  const list = S.dash.courses.filter(c => S.filter === 'all' || c.state === S.filter);
+  const list = S.dash.courses.filter(c => S.filter === 'all' || (S.filter === 'mine' ? c.enrolled : c.state === S.filter));
   if (!list.length) {
     $('#course-grid').innerHTML = '<div class="empty">ไม่มีหลักสูตรในกลุ่มนี้</div>';
     return;
@@ -264,9 +264,15 @@ function courseCard(c) {
     ? `background-image:linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.5)),url('${esc(c.cover_url)}')`
     : `background:linear-gradient(135deg,${esc(c.color)},${esc(shade(c.color, -35))})`;
   const id = esc(c.course_id);
-  const btn = c.passed
-    ? `<button class="btn success small" onclick="App.cert('${id}')">ดาวน์โหลดเกียรติบัตร</button>`
-    : `<button class="btn primary small" onclick="App.openCourse('${id}')">${c.state === 'new' ? 'เริ่มเรียน' : 'เรียนต่อ'}</button>`;
+  let btn;
+  if (c.passed) btn = `<button class="btn success small" onclick="App.cert('${id}')">ดาวน์โหลดเกียรติบัตร</button>`;
+  else if (!c.enrolled) btn = c.enroll_open
+    ? `<button class="btn primary small" onclick="App.enroll('${id}')">ลงทะเบียน</button>`
+    : `<button class="btn small" disabled>ปิดรับลงทะเบียน</button>`;
+  else btn = `<button class="btn primary small" onclick="App.openCourse('${id}')">${c.state === 'enrolled' ? 'เริ่มเรียน' : 'เรียนต่อ'}</button>`;
+  const foot = c.enrolled
+    ? `<span class="small muted">ความก้าวหน้า ร้อยละ ${c.percent}</span>`
+    : `<button class="btn ghost small" onclick="App.openCourse('${id}')">ดูรายละเอียด</button>`;
   return `<article class="course-card">
     <div class="course-cover" style="${cover}">
       <span class="tool">${esc(c.tool_name || c.title)}</span>
@@ -276,9 +282,9 @@ function courseCard(c) {
       <h4>${esc(c.title)}</h4>
       <p>${esc(c.description)}</p>
       <div class="meta"><span>${esc(c.lesson_count)} บทเรียน</span><span>${esc(c.hours)} ชั่วโมง</span>${c.question_count ? `<span>มีแบบทดสอบ</span>` : ''}</div>
-      <div class="progress ${c.passed ? 'ok' : ''}"><span style="width:${c.percent}%"></span></div>
+      ${c.enrolled ? `<div class="progress ${c.passed ? 'ok' : ''}"><span style="width:${c.percent}%"></span></div>` : ''}
       <div class="course-foot">
-        <span class="small muted">ความก้าวหน้า ร้อยละ ${c.percent}</span>
+        ${foot}
         ${btn}
       </div>
       ${c.passed ? `<button class="btn ghost small" onclick="App.openCourse('${id}')">ทบทวนบทเรียน</button>` : ''}
@@ -338,8 +344,12 @@ function renderCourseHead() {
         ${c.question_count ? `<span>แบบทดสอบ ${c.best_quiz >= 0 ? 'คะแนนสูงสุด ร้อยละ ' + c.best_quiz : 'ยังไม่ได้ทำ'}</span>` : ''}</div>
     </div>
     <div class="prog-wrap">
-      <div class="small muted">ความก้าวหน้า ร้อยละ ${c.percent}</div>
-      <div class="progress ${c.passed ? 'ok' : ''}"><span style="width:${c.percent}%"></span></div>
+      ${!c.enrolled ? (c.enroll_open
+        ? `<button class="btn primary" onclick="App.enroll('${esc(c.course_id)}')">ลงทะเบียนหลักสูตร</button>`
+        : '<span class="badge hidden-st">ปิดรับลงทะเบียน</span>') : `
+      <div class="small muted">ลงทะเบียนแล้ว${c.enrolled_at ? ' เมื่อ ' + esc(thaiShort(c.enrolled_at)) : ''}</div>
+      <div class="small muted">ความก้าวหน้า ร้อยละ ${c.percent}</div>`}
+      ${c.enrolled ? `<div class="progress ${c.passed ? 'ok' : ''}"><span style="width:${c.percent}%"></span></div>` : ''}
       ${c.passed ? `<button class="btn success small" style="margin-top:8px" onclick="App.cert('${esc(c.course_id)}')">ดาวน์โหลดเกียรติบัตร</button>` : ''}
     </div>`;
 }
@@ -350,6 +360,11 @@ function renderLessonList() {
       <div class="st special">i</div><div><div class="tt">ภาพรวมหลักสูตร</div><div class="sub">วัตถุประสงค์และเกณฑ์การผ่าน</div></div></div>
     <div class="list-sep">บทเรียน</div>`;
   S.lessons.forEach((l, i) => {
+    if (!c.enrolled) {
+      html += `<div class="lesson-item locked" onclick="App.needEnroll()">
+        <div class="st">${LOCK_SVG}</div><div><div class="tt">${esc(l.title)}</div><div class="sub">${l.duration_min ? esc(l.duration_min) + ' นาที' : ''}</div></div></div>`;
+      return;
+    }
     const cls = l.completed ? 'done' : (l.watched_percent > 0 ? 'part' : '');
     const sub = l.completed ? 'เรียนจบแล้ว' : (l.watched_percent > 0 ? 'รับชมแล้ว ร้อยละ ' + l.watched_percent : (l.duration_min ? l.duration_min + ' นาที' : 'ยังไม่เริ่ม'));
     html += `<div class="lesson-item ${S.active === 'lesson:' + l.lesson_id ? 'active' : ''}" onclick="App.openLesson('${esc(l.lesson_id)}')">
@@ -376,10 +391,15 @@ function renderOverview() {
   const next = S.lessons.find(l => !l.completed);
   let action;
   if (c.passed) action = `<button class="btn success" onclick="App.cert('${esc(c.course_id)}')">ดาวน์โหลดเกียรติบัตร</button>`;
+  else if (!c.enrolled) action = c.enroll_open
+    ? `<button class="btn primary" onclick="App.enroll('${esc(c.course_id)}')">ลงทะเบียนหลักสูตรนี้</button>`
+    : '<div class="notice warn">หลักสูตรนี้ปิดรับลงทะเบียนแล้ว</div>';
   else if (next) action = `<button class="btn primary" onclick="App.openLesson('${esc(next.lesson_id)}')">${c.lessons_done ? 'เรียนต่อ' : 'เริ่มเรียน'} บทที่ ${S.lessons.indexOf(next) + 1}</button>`;
   else if (c.question_count) action = `<button class="btn primary" onclick="App.openQuiz()">ทำแบบทดสอบหลังเรียน</button>`;
   else action = '';
-  $('#lesson-main').innerHTML = `
+  const html = `
+    ${S.justEnrolled ? '<div class="notice ok">ลงทะเบียนหลักสูตรเรียบร้อยแล้ว กดปุ่มด้านล่างเพื่อเริ่มเรียนบทที่ 1</div>' : ''}
+    ${!c.enrolled ? '<div class="notice info">กรุณาลงทะเบียนหลักสูตรก่อน บทเรียนจะเปิดให้เรียนทันทีหลังลงทะเบียน</div>' : ''}
     ${c.passed ? '<div class="notice ok">ท่านผ่านหลักสูตรนี้แล้ว สามารถทบทวนบทเรียนและดาวน์โหลดเกียรติบัตรได้ตลอดเวลา</div>' : ''}
     <div class="card">
       <h3>เกี่ยวกับหลักสูตร</h3>
@@ -395,10 +415,13 @@ function renderOverview() {
       </ol>
       ${action}
     </div>`;
+  $('#lesson-main').innerHTML = html;
+  S.justEnrolled = false;
   renderLessonList();
 }
 
 function openLesson(id) {
+  if (!S.course.enrolled) { needEnroll(); return; }
   stopPlayer();
   const idx = S.lessons.findIndex(l => l.lesson_id === id);
   if (idx < 0) return;
@@ -595,6 +618,7 @@ function stopPlayer() {
 /* ---------------- แบบทดสอบหลังเรียน ---------------- */
 
 async function openQuiz() {
+  if (!S.course.enrolled) { needEnroll(); return; }
   if (!S.course.lessons_done_all) { toast('กรุณาเรียนให้ครบทุกบทเรียนก่อนทำแบบทดสอบ', 'error'); return; }
   stopPlayer();
   S.active = 'quiz';
@@ -986,19 +1010,18 @@ function courseSelect() {
 /* รายงาน */
 function adminReportView() {
   const r = S.report, sm = r.summary;
-  const total = Math.max(1, sm.users);
   return `
     <div class="stats">
       <div class="stat"><div class="num">${sm.users}</div><div class="lbl">ผู้ลงทะเบียน</div></div>
-      <div class="stat"><div class="num">${sm.active}</div><div class="lbl">ผู้เริ่มเรียนแล้ว</div></div>
+      <div class="stat"><div class="num">${sm.active}</div><div class="lbl">ผู้ลงทะเบียนหลักสูตรแล้ว</div></div>
       <div class="stat"><div class="num">${sm.certificates}</div><div class="lbl">เกียรติบัตรที่ออกแล้ว</div></div>
       <div class="stat"><div class="num">${sm.courses}</div><div class="lbl">หลักสูตรที่เผยแพร่</div></div>
     </div>
     <div class="card">
-      <h4>จำนวนผู้ผ่านการอบรมรายหลักสูตร</h4>
+      <h4>จำนวนผู้ผ่านการอบรมรายหลักสูตร (แถบแสดงสัดส่วนผู้ผ่านต่อผู้ลงทะเบียนหลักสูตร)</h4>
       ${r.perCourse.map(c => `<div class="bar-row"><span>${esc(c.tool_name || c.title)}</span>
-        <div class="progress ok"><span style="width:${Math.round(c.passed / total * 100)}%"></span></div>
-        <span class="small">ผ่าน ${c.passed} เริ่ม ${c.started}</span></div>`).join('') || '<p class="muted">ยังไม่มีหลักสูตร</p>'}
+        <div class="progress ok"><span style="width:${c.enrolled ? Math.round(c.passed / c.enrolled * 100) : 0}%"></span></div>
+        <span class="small">ลงทะเบียน ${c.enrolled} ผ่าน ${c.passed}</span></div>`).join('') || '<p class="muted">ยังไม่มีหลักสูตร</p>'}
     </div>
     <div class="toolbar">
       <input id="rep-search" placeholder="ค้นหาชื่อ สถานศึกษา หรืออีเมล" style="min-width:260px">
@@ -1018,7 +1041,7 @@ function reportTable() {
       <td class="num">${i + 1}</td>
       <td>${esc(u.full_name)}<div class="small muted">${esc(u.email)}</div></td>
       <td>${esc(u.position)}</td><td>${esc(u.school)}</td>
-      ${r.courses.map(c => { const p = u.courses[c.course_id]; return `<td class="num"><span class="pct ${p.passed ? 'ok' : (p.percent > 0 ? 'mid' : '')}">${p.passed ? 'ผ่าน' : p.percent}</span></td>`; }).join('')}
+      ${r.courses.map(c => { const p = u.courses[c.course_id]; return p.enrolled ? `<td class="num"><span class="pct ${p.passed ? 'ok' : (p.percent > 0 ? 'mid' : '')}">${p.passed ? 'ผ่าน' : p.percent}</span></td>` : '<td class="num"><span class="small muted">ไม่ได้ลง</span></td>'; }).join('')}
       <td class="num">${u.passed}</td>
       <td>${u.role === 'admin' ? '<span class="badge learning">ผู้ดูแล</span>' : ''} ${u.status === 'ระงับ' ? '<span class="badge hidden-st">ระงับ</span>' : '<span class="badge passed">ใช้งาน</span>'}</td>
       <td style="white-space:nowrap">
@@ -1035,7 +1058,7 @@ function exportCsv() {
     .concat(r.courses.map(c => c.title + ' (ร้อยละความก้าวหน้า)'))
     .concat(['จำนวนหลักสูตรที่ผ่าน', 'วันที่ลงทะเบียน', 'เข้าใช้ล่าสุด']);
   const rows = r.users.filter(u => u.role !== 'admin').map((u, i) => [i + 1, u.full_name, u.email, u.position, u.school, u.affiliation, u.phone]
-    .concat(r.courses.map(c => u.courses[c.course_id].passed ? 'ผ่าน' : u.courses[c.course_id].percent))
+    .concat(r.courses.map(c => { const p = u.courses[c.course_id]; return !p.enrolled ? 'ไม่ได้ลงทะเบียน' : (p.passed ? 'ผ่าน' : p.percent); }))
     .concat([u.passed, u.created_at, u.last_login]));
   const csv = [head].concat(rows).map(row => row.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
@@ -1084,7 +1107,9 @@ const COURSE_FIELDS = [
   { name: 'pass_percent', label: 'เกณฑ์ผ่านแบบทดสอบ (ร้อยละ)', type: 'number', default: 70 },
   { name: 'color', label: 'สีประจำหลักสูตร', type: 'color', default: '#1e40af' },
   { name: 'cover_url', label: 'ลิงก์ภาพปก', type: 'url', help: 'ไม่บังคับ หากเว้นว่างระบบใช้สีประจำหลักสูตร' },
-  { name: 'status', label: 'สถานะ', type: 'select', options: ['เผยแพร่', 'ซ่อน'] }
+  { name: 'status', label: 'สถานะการเผยแพร่', type: 'select', options: ['เผยแพร่', 'ซ่อน'] },
+  { name: 'enroll_open', label: 'การรับลงทะเบียน', type: 'select', options: ['เปิด', 'ปิด'],
+    help: 'ปิดรับลงทะเบียนแล้ว ผู้ที่ลงทะเบียนไว้ก่อนยังเรียนต่อได้ตามปกติ' }
 ];
 
 function adminCoursesView() {
@@ -1092,7 +1117,7 @@ function adminCoursesView() {
   return `<div class="toolbar"><span class="muted">หลักสูตรทั้งหมด ${a.courses.length} หลักสูตร</span>
       <button class="btn primary" onclick="App.editCourse('')">เพิ่มหลักสูตร</button></div>
     <div class="table-wrap"><table class="tbl"><thead><tr><th class="num">ลำดับ</th><th>รหัส</th><th>ชื่อหลักสูตร</th><th class="num">ชั่วโมง</th>
-      <th class="num">บทเรียน</th><th class="num">ข้อสอบ</th><th class="num">เกณฑ์</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>
+      <th class="num">บทเรียน</th><th class="num">ข้อสอบ</th><th class="num">เกณฑ์</th><th class="num">ผู้ลงทะเบียน</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>
       ${a.courses.map(c => `<tr>
         <td class="num">${esc(c.order)}</td><td>${esc(c.course_id)}</td>
         <td><span class="badge" style="background:${esc(c.color)};color:#fff">${esc(c.tool_name)}</span> ${esc(c.title)}</td>
@@ -1100,7 +1125,9 @@ function adminCoursesView() {
         <td class="num">${a.lessons.filter(l => l.course_id === c.course_id).length}</td>
         <td class="num">${a.questions.filter(q => q.course_id === c.course_id).length}</td>
         <td class="num">${esc(c.pass_percent)}</td>
-        <td><span class="badge ${c.status === 'เผยแพร่' ? 'passed' : 'hidden-st'}">${esc(c.status)}</span></td>
+        <td class="num">${(S.report && (S.report.perCourse.find(x => x.course_id === c.course_id) || {}).enrolled) || 0}</td>
+        <td><span class="badge ${c.status === 'เผยแพร่' ? 'passed' : 'hidden-st'}">${esc(c.status)}</span>
+          <div class="small muted">${String(c.enroll_open) === 'ปิด' ? 'ปิดรับลงทะเบียน' : 'เปิดรับลงทะเบียน'}</div></td>
         <td style="white-space:nowrap"><button class="btn small" onclick="App.editCourse('${esc(c.course_id)}')">แก้ไข</button>
           <button class="btn small danger" onclick="App.delCourse('${esc(c.course_id)}')">ลบ</button></td></tr>`).join('')}
       </tbody></table></div>`;
@@ -1264,7 +1291,67 @@ async function onSaveSettings(e) {
 
 /* ---------------- ฟังก์ชันที่เรียกจากปุ่ม ---------------- */
 
+/* ---------------- ลงทะเบียนหลักสูตร ---------------- */
+
+function thaiShort(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(v || '');
+  const mon = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  return Number(m[3]) + ' ' + mon[Number(m[2]) - 1] + ' ' + (Number(m[1]) + 543);
+}
+
+function needEnroll() {
+  toast('กรุณาลงทะเบียนหลักสูตรก่อนเริ่มเรียน', 'error');
+}
+
+function enroll(courseId) {
+  const c = (S.course && S.course.course_id === courseId ? S.course : null) ||
+    (S.dash ? S.dash.courses.find(x => x.course_id === courseId) : null);
+  if (!c) return;
+  $('#modal-title').textContent = 'ลงทะเบียนหลักสูตร';
+  $('#modal-body').innerHTML = `
+    <h3 style="margin-bottom:6px">${esc(c.title)}</h3>
+    <p class="muted" style="margin-top:0">${esc(c.description)}</p>
+    <table class="tbl" style="margin-bottom:14px">
+      <tr><td>จำนวนบทเรียน</td><td>${esc(c.lesson_count)} บท</td></tr>
+      <tr><td>จำนวนชั่วโมง</td><td>${esc(c.hours)} ชั่วโมง</td></tr>
+      <tr><td>แบบทดสอบหลังเรียน</td><td>${c.question_count ? c.question_count + ' ข้อ เกณฑ์ผ่าน ร้อยละ ' + c.pass_percent : 'ไม่มี'}</td></tr>
+      <tr><td>ผู้ลงทะเบียน</td><td>${esc(S.user.full_name)}<div class="small muted">${esc([S.user.position, S.user.school].filter(Boolean).join(' '))}</div></td></tr>
+    </table>
+    <p class="small muted">ชื่อ สกุล และสถานศึกษาข้างต้นจะปรากฏบนเกียรติบัตร หากไม่ถูกต้องกรุณาแก้ไขที่เมนู ข้อมูลส่วนตัว</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" data-close>ยกเลิก</button>
+      <button class="btn primary" id="btn-enroll-ok">ยืนยันการลงทะเบียน</button>
+    </div>`;
+  $('#modal').classList.remove('hidden');
+  $('#btn-enroll-ok').onclick = async () => {
+    closeModal();
+    loading(true, 'กำลังลงทะเบียน');
+    try {
+      const r = await api('enrollCourse', S.token, courseId);
+      S.course = r.course;
+      S.lessons = r.lessons;
+      S.minWatch = r.min_watch;
+      if (S.dash) {
+        const i = S.dash.courses.findIndex(x => x.course_id === courseId);
+        if (i >= 0) S.dash.courses[i] = Object.assign({}, S.dash.courses[i], r.course);
+      }
+      showView('course');
+      renderCourseHead();
+      S.justEnrolled = true;
+      renderOverview();
+      toast('ลงทะเบียนหลักสูตรเรียบร้อย', 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      loading(false);
+    }
+  };
+}
+
 const App = {
+  enroll: id => enroll(id),
+  needEnroll: () => needEnroll(),
   openCourse: id => openCourse(id),
   openLesson: id => openLesson(id),
   overview: () => renderOverview(),
