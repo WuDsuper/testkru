@@ -861,7 +861,22 @@ function loadImg(src) {
 function splitUnits(text) {
   text = String(text || '');
   if (window.Intl && Intl.Segmenter) {
-    return Array.from(new Intl.Segmenter('th', { granularity: 'word' }).segment(text), s => s.segment);
+    const segs = Array.from(new Intl.Segmenter('th', { granularity: 'word' }).segment(text), s => s.segment);
+    // ไม่ตัดบรรทัดหลังวงเล็บเปิด หรือก่อนวงเล็บปิดและเครื่องหมายวรรคตอน
+    const out = [];
+    segs.forEach(g => {
+      const prev = out[out.length - 1];
+      if (prev !== undefined && (/[(\[“"]$/.test(prev) || /^[)\]”",.:;]/.test(g))) out[out.length - 1] = prev + g;
+      else out.push(g);
+    });
+    // ไม่ให้ตัวเลขหลุดไปขึ้นบรรทัดใหม่ตามลำพัง เช่น เขต 1
+    for (let i = out.length - 1; i >= 2; i--) {
+      if (/^[0-9๐-๙.,]+$/.test(out[i]) && /^\s+$/.test(out[i - 1])) {
+        out.splice(i - 2, 3, out[i - 2] + out[i - 1] + out[i]);
+        i -= 2;
+      }
+    }
+    return out;
   }
   const out = [];
   Array.from(text).forEach(ch => {
@@ -926,20 +941,23 @@ function certVerifyUrl(d) {
 // วาดคิวอาร์โค้ดลงบนเกียรติบัตรโดยตรงทีละจุด ภาพคมชัด ไม่เบลอเมื่อย่อหรือพิมพ์
 function drawQr(ctx, text, x, y, size) {
   if (typeof window.qrcode !== 'function') return 0;
-  const qr = qrcode(0, 'M');
+  // ระดับแก้ไขข้อผิดพลาด L ได้จุดน้อยที่สุด จุดจึงใหญ่และสแกนง่าย ขอบขาว 2 จุดเพราะวางบนกรอบสีขาวอยู่แล้ว
+  const qr = qrcode(0, 'L');
   qr.addData(text);
   qr.make();
-  const n = qr.getModuleCount(), quiet = 4, total = n + quiet * 2;
-  const cell = Math.max(1, Math.floor(size / total)), real = cell * total;
+  const n = qr.getModuleCount(), quiet = 2, total = n + quiet * 2, cell = size / total;
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x, y, real, real);
+  ctx.fillRect(x, y, size, size);
   ctx.fillStyle = '#000000';
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
-      if (qr.isDark(r, c)) ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell, cell);
+      if (!qr.isDark(r, c)) continue;
+      const x0 = Math.round(x + (c + quiet) * cell), y0 = Math.round(y + (r + quiet) * cell);
+      const x1 = Math.round(x + (c + quiet + 1) * cell), y1 = Math.round(y + (r + quiet + 1) * cell);
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     }
   }
-  return real;
+  return size;
 }
 
 async function drawCertificate(d) {
@@ -956,51 +974,66 @@ async function drawCertificate(d) {
   x.textAlign = 'center';
   x.textBaseline = 'alphabetic';
 
-  let y = 200;
+  // ความกว้างข้อความสูงสุด 1,300 พิกเซล เว้นพื้นที่ด้านข้างให้ลวดลายพื้นหลังและคิวอาร์โค้ด
+  const textW = 1300;
+  let y;
   if (logo) {
-    const h = 250, w = logo.width * h / logo.height;
-    x.drawImage(logo, cx - w / 2, 110, w, h);
-    y = 320;
+    const h = 210, w = logo.width * h / logo.height;
+    x.drawImage(logo, cx - w / 2, 60, w, h);
+    y = 60 + h + 58;
+  } else {
+    y = 190;
   }
-  y = drawLines(x, d.org_name, cx, y, maxW, '600 46px Sarabun', '#1e3a8a', 60) + 70;
-  x.font = '700 92px Sarabun'; x.fillStyle = '#1e3a8a';
-  x.fillText('เกียรติบัตร', cx, y); y += 90;
-  x.font = '400 40px Sarabun'; x.fillStyle = '#334155';
-  x.fillText('มอบเกียรติบัตรฉบับนี้ไว้เพื่อแสดงว่า', cx, y); y += 120;
-  x.font = fitFont(x, d.full_name, 700, 88, 50, maxW); x.fillStyle = '#7a5300';
-  x.fillText(d.full_name, cx, y); y += 75;
+  y = drawLines(x, d.org_name, cx, y, textW, '600 44px Sarabun', '#1e3a8a', 56) + 40;
+  x.font = '700 86px Sarabun'; x.fillStyle = '#1e3a8a';
+  x.fillText('เกียรติบัตร', cx, y); y += 72;
+  x.font = '400 38px Sarabun'; x.fillStyle = '#334155';
+  x.fillText('มอบเกียรติบัตรฉบับนี้ไว้เพื่อแสดงว่า', cx, y); y += 102;
+  x.font = fitFont(x, d.full_name, 700, 82, 50, textW); x.fillStyle = '#7a5300';
+  x.fillText(d.full_name, cx, y); y += 62;
   const pos = [d.position ? 'ตำแหน่ง ' + d.position : '', d.school || ''].filter(Boolean).join(' ');
-  if (pos) y = drawLines(x, pos, cx, y, maxW, '400 36px Sarabun', '#334155', 50) + 25;
-  x.font = '400 40px Sarabun'; x.fillStyle = '#334155';
-  x.fillText('ได้ผ่านการอบรมออนไลน์ หลักสูตร', cx, y); y += 76;
-  y = drawLines(x, d.course_title, cx, y, maxW, '700 54px Sarabun', '#1e3a8a', 70) + 10;
-  y = drawLines(x, 'โครงการอบรม' + d.program_name + ' จำนวน ' + d.hours + ' ชั่วโมง', cx, y, maxW, '400 36px Sarabun', '#334155', 50) + 10;
-  x.font = '400 36px Sarabun'; x.fillStyle = '#334155';
+  if (pos) y = drawLines(x, pos, cx, y, textW, '400 34px Sarabun', '#334155', 46) + 16;
+  x.font = '400 38px Sarabun'; x.fillStyle = '#334155';
+  x.fillText('ได้ผ่านการอบรมออนไลน์ หลักสูตร', cx, y); y += 70;
+  y = drawLines(x, d.course_title, cx, y, textW, '700 52px Sarabun', '#1e3a8a', 64) - 6;
+  y = drawLines(x, 'โครงการอบรม' + d.program_name + ' จำนวน ' + d.hours + ' ชั่วโมง', cx, y, textW, '400 34px Sarabun', '#334155', 46) + 4;
+  x.font = '400 34px Sarabun'; x.fillStyle = '#334155';
   x.fillText('ให้ไว้ ณ วันที่ ' + d.issued_at_th, cx, y);
 
-  // ส่วนลงนาม
-  let sy = Math.max(y + 40, H - 380);
+  // ส่วนลงนาม ต่อจากเนื้อหา แต่ไม่สูงกว่าตำแหน่งมาตรฐานด้านล่าง
+  let sy = Math.max(y + 22, H - 440);
   if (sig) {
-    const h = 110, w = Math.min(420, sig.width * h / sig.height);
+    const h = 100, w = Math.min(380, sig.width * h / sig.height);
     x.drawImage(sig, cx - w / 2, sy, w, h);
   }
-  sy += 150;
-  x.font = '400 36px Sarabun'; x.fillStyle = '#0f172a';
+  sy += 138;
+  x.font = '400 34px Sarabun'; x.fillStyle = '#0f172a';
   x.fillText('(' + d.signer_name + ')', cx, sy);
-  drawLines(x, d.signer_position, cx, sy + 50, 980, '400 32px Sarabun', '#334155', 44);
+  drawLines(x, d.signer_position, cx, sy + 46, 960, '400 30px Sarabun', '#334155', 40);
 
-  // เลขที่และคิวอาร์โค้ด
-  x.textAlign = 'left';
-  x.font = '400 26px Sarabun'; x.fillStyle = '#475569';
-  x.fillText('เลขที่ ' + d.cert_no, 130, H - 120);
-  const vurl = certVerifyUrl(d);
-  const qsize = drawQr(x, vurl, W - 480, H - 500, 370);
-  if (qsize) {
-    x.textAlign = 'center';
-    x.font = '400 24px Sarabun'; x.fillStyle = '#475569';
-    x.fillText('สแกนเพื่อตรวจสอบเกียรติบัตร', W - 480 + qsize / 2, H - 500 + qsize + 30);
-  }
+  // คิวอาร์โค้ดและเลขที่ อยู่ในกรอบสีขาวมุมขวาล่าง อ่านได้ชัดบนพื้นหลังทุกแบบ
+  const qs = 250, px = W - 505, py = H - 465, pw = qs + 40, ph = qs + 104;
+  x.fillStyle = 'rgba(255,255,255,0.94)';
+  roundRect(x, px, py, pw, ph, 18);
+  x.fill();
+  const qsize = drawQr(x, certVerifyUrl(d), px + 20, py + 16, qs);
+  x.textAlign = 'center';
+  x.fillStyle = '#334155';
+  x.font = '400 22px Sarabun';
+  if (qsize) x.fillText('สแกนเพื่อตรวจสอบ', px + pw / 2, py + 16 + qsize + 28);
+  x.font = fitFont(x, 'เลขที่ ' + d.cert_no, 600, 21, 14, pw - 20);
+  x.fillText('เลขที่ ' + d.cert_no, px + pw / 2, py + 16 + (qsize || qs) + 58);
   return c;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function certFileName() {
